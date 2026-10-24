@@ -13,3 +13,15 @@ This tool enables wireless Apple CarPlay on older vehicles that already support 
   The reason is that these hacks use system files from older firmware versions (70 or earlier), which do not include wireless CarPlay support.
 
   **How to fix this:** If you are affected, you must first undo the modifications that caused the issue. The appropriate fix depends on which hacks have been installed. Alternatively, you can reinstall firmware version **74.00.324A**.
+
+Requirements
+Firmware version 74.00.324
+USB flash drive 32 GB or smaller, formatted as FAT32
+Installation / Uninstallation
+Extract the zip and copy all files to the root directory of your flash drive.
+
+Safely eject the drive and plug it into your Mazda.
+
+Wait a few seconds for the installer dialog to automatically appear on the screen.
+
+Follow the on-screen prompts to Enable or Disable. Once complete, reboot the head unit.
