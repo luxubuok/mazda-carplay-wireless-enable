@@ -67,15 +67,13 @@ then
       echo "Backup ${TARGET_SCRIPT}.orig already exists"
     fi
 
-    # 2. Patch exit $ret -> exit 2
-    if grep -q '^exit 2' "${TARGET_SCRIPT}"
-    then
-      echo "Already patched with exit 2"
-    else
-      sed -i 's/exit \$ret/exit 2/g' "${TARGET_SCRIPT}"
-      echo "Patched ${TARGET_SCRIPT}: replaced 'exit \$ret' with 'exit 2'"
-    fi
-
+    # 2. Optimize: Replace entirely with fast exit 2
+    cat << 'EOF' > "${TARGET_SCRIPT}"
+#!/bin/sh
+# Force Board Type 2 for Wireless CarPlay (optimized fast exit)
+exit 2
+EOF
+    echo "Overwritten ${TARGET_SCRIPT} with fast 'exit 2'"
     chmod 0755 "${TARGET_SCRIPT}"
   else
     echo "ERROR: ${TARGET_SCRIPT} not found!"
@@ -110,9 +108,37 @@ then
       rm -f "${TARGET_SCRIPT}.orig"
       echo "Restored ${TARGET_SCRIPT} from backup"
     else
-      # Revert edit manually
-      sed -i 's/exit 2/exit \$ret/g' "${TARGET_SCRIPT}"
-      echo "Reverted ${TARGET_SCRIPT}: replaced 'exit 2' with 'exit \$ret'"
+      echo "WARNING: ${TARGET_SCRIPT}.orig not found, restoring default logic"
+      cat << 'EOF' > "${TARGET_SCRIPT}"
+#!/bin/sh
+ret=1
+
+DI_TP1056=/sys/class/gpio/DI_TP1056/value
+DI_TP1029=/sys/class/gpio/DI_TP1029/value
+
+if [ -e "$DI_TP1056" ] && [ -e "$DI_TP1029" ]; then
+    for cnt in `seq 0 2`
+    do
+        value1=$(cat $DI_TP1056)
+        if [ $? = '0' ]; then
+            if [ $value1 = '0' ] || [ $value1 = '1' ]; then
+                value2=$(cat $DI_TP1029)
+                if [ $? = '0' ]; then
+                    if [ $value2 = '0' ] || [ $value2 = '1' ]; then
+                        if [ $value1 = '1' ] || [ $value2 = '1' ]; then
+                            ret=2
+                        fi
+                        break
+                    fi
+                fi
+            fi
+        fi
+        sleep 1
+    done
+fi
+
+exit $ret
+EOF
     fi
 
     chmod 0755 "${TARGET_SCRIPT}"
