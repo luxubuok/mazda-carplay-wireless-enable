@@ -103,12 +103,13 @@ if [ "$IS_VIM" -eq 1 ]; then
 elif [ "$IS_AUTOSTART" -eq 1 ]; then
     # autostart calls get_board_type.sh twice during boot:
     # - Call 1: checks ublox. Return 1 so autostart itself cleans up ublox.txt
-    # - Call 2: starts Service Manager. Return 2 to launch sm_WCP.conf
+    # - Call 2: starts Service Manager. Delete flag & return 2 to launch sm_WCP.conf
     FLAG="/tmp/autostart_stage1_done"
     if [ ! -f "$FLAG" ]; then
         touch "$FLAG"
         exit 1
     else
+        rm -f "$FLAG"
         exit 2
     fi
 else
@@ -116,7 +117,7 @@ else
     exit 2
 fi
 EOF
-    echo "Updated ${TARGET_SCRIPT} with multi-stage caller-aware DTC fix"
+    echo "Updated ${TARGET_SCRIPT} with self-cleaning multi-stage DTC fix"
     chmod 0755 "${TARGET_SCRIPT}"
   else
     echo "ERROR: ${TARGET_SCRIPT} not found!"
@@ -190,15 +191,7 @@ EOF
     chmod 0755 "${TARGET_SCRIPT}"
   fi
 
-  # 2. Restore autostart if backup exists from previous versions
-  if [ -f "/usr/bin/autostart.orig" ]
-  then
-    cp -a "/usr/bin/autostart.orig" "/usr/bin/autostart"
-    rm -f "/usr/bin/autostart.orig"
-    echo "Restored /usr/bin/autostart from backup"
-  fi
-
-  # 3. Clean up ublox.txt and tmp flags
+  # 2. Clean up ublox.txt and tmp flags
   rm -f /data_persist/ublox.txt /tmp/autostart_stage1_done 2>/dev/null
 
   sync
