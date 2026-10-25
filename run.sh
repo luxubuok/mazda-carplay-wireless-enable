@@ -1,7 +1,11 @@
 #!/bin/sh
 # Wireless CarPlay Enabler/Disabler for Mazda CMU
 # Target CMU Firmware: V74.x (e.g. 74.00.324)
-# Features: Wireless CarPlay activation + Clean Fix for DTC B119F:92-08
+# Features:
+#   1. Wireless CarPlay activation (FW 74)
+#   2. Zero DTC B119F:92-08 (Smart caller-aware get_board_type.sh)
+#   3. Anti-bootloop & Anti-reboot patch for sm_WCP.conf (jciLDS & jcinavi)
+#   4. Fail-safe kill-switch support (/data_persist/wcp_force_off)
 
 hwclock --hctosys
 
@@ -34,11 +38,12 @@ fi
 mkdir -p "${MYDIR}/logs"
 
 TARGET_SCRIPT="/jci/scripts/get_board_type.sh"
+SM_WCP_CONF="/jci/sm/sm_WCP.conf"
 
 # --- Prompt user: Enable, Disable, or Cancel ---
 /jci/tools/jci-dialog --3-button-dialog \
   --title="Wireless CarPlay" \
-  --text="Enable or Disable Wireless CarPlay?\nDetected CMU FW: V${CMU_VER}\nIncludes DTC B119F Clean Fix" \
+  --text="Enable or Disable Wireless CarPlay?\nDetected CMU FW: V${CMU_VER}\nIncludes DTC B119F Fix & Anti-Reboot Patch" \
   --ok-label="Enable" \
   --cancel-label="Disable" \
   --button3-label="Cancel"
@@ -47,7 +52,7 @@ CHOICE=$?
 if [ $CHOICE -eq 0 ]
 then
   # ============================================================
-  # ENABLE WIRELESS CARPLAY + DTC B119F FIX
+  # ENABLE WIRELESS CARPLAY + DTC B119F FIX + ANTI-REBOOT PATCH
   # ============================================================
   exec > "${MYDIR}/logs/wcp_enable.log" 2>&1
   echo "=== Wireless CarPlay Enable start ==="
@@ -55,7 +60,7 @@ then
   echo "Timestamp: $(date)"
 
   /jci/tools/jci-dialog --info --title="Wireless CarPlay" \
-    --text="Enabling Wireless CarPlay...\nApplying DTC B119F fix...\nDo not remove USB drive." --no-cancel &
+    --text="Enabling Wireless CarPlay...\nApplying DTC fix & anti-reboot patch...\nDo not remove USB drive." --no-cancel &
 
   # 1. Patch get_board_type.sh with smart multi-stage & process-tree detection
   if [ -f "${TARGET_SCRIPT}" ]
@@ -71,6 +76,11 @@ then
     cat << 'EOF' > "${TARGET_SCRIPT}"
 #!/bin/sh
 # Smart Board Type Detection for Wireless CarPlay with zero DTC B119F:92-08
+
+# Safety kill-switch (Force Disable Wireless CarPlay if needed)
+if [ -e /data_persist/wcp_force_off ]; then
+    exit 1
+fi
 
 # Ensure ublox.txt is cleaned up so OBD diagnostics stays in standard GPS mode
 rm -f /data_persist/ublox.txt 2>/dev/null
@@ -123,8 +133,31 @@ EOF
     echo "ERROR: ${TARGET_SCRIPT} not found!"
   fi
 
-  # 2. Clean up any existing ublox.txt
-  rm -f /data_persist/ublox.txt 2>/dev/null
+  # 2. Patch sm_WCP.conf (Disable UBLOX checks and remove reset_board="yes" to prevent reboot loop)
+  if [ -f "${SM_WCP_CONF}" ]
+  then
+    if [ ! -f "${SM_WCP_CONF}.orig" ]
+    then
+      cp -a "${SM_WCP_CONF}" "${SM_WCP_CONF}.orig"
+      echo "Created backup: ${SM_WCP_CONF}.orig"
+    else
+      echo "Backup ${SM_WCP_CONF}.orig already exists"
+    fi
+
+    # Remove GPS=UBLOX from jciLDS and prevent board reset on failure
+    sed -i '/name="jciLDS"/s/ GPS=UBLOX//' "${SM_WCP_CONF}"
+    sed -i '/name="jciLDS"/s/reset_board="yes"/reset_board="no"/' "${SM_WCP_CONF}"
+
+    # Return jcinavi to default GPS chip (STA8) and prevent board reset on failure
+    sed -i '/name="jcinavi"/s/args="wcp"/args=""/' "${SM_WCP_CONF}"
+    sed -i '/name="jcinavi"/s/reset_board="yes"/reset_board="no"/' "${SM_WCP_CONF}"
+
+    echo "Patched ${SM_WCP_CONF}: neutralized UBLOX & disabled reset_board on jciLDS/jcinavi"
+    chmod 0644 "${SM_WCP_CONF}"
+  fi
+
+  # 3. Clean up any existing ublox.txt or force-off flags
+  rm -f /data_persist/ublox.txt /data_persist/wcp_force_off 2>/dev/null
   echo "Cleaned up /data_persist/ublox.txt"
 
   sync
@@ -132,7 +165,7 @@ EOF
 
   killall -q jci-dialog
   /jci/tools/jci-dialog --info --title="Wireless CarPlay" \
-    --text="Wireless CarPlay Enabled successfully!\nDTC B119F fix applied.\nYou can remove the USB drive.\nRebooting in 5 seconds..." --no-cancel &
+    --text="Wireless CarPlay Enabled successfully!\nDTC B119F fix & anti-reboot patch applied.\nYou can remove the USB drive.\nRebooting in 5 seconds..." --no-cancel &
 
 elif [ $CHOICE -eq 1 ]
 then
@@ -191,8 +224,20 @@ EOF
     chmod 0755 "${TARGET_SCRIPT}"
   fi
 
-  # 2. Clean up ublox.txt and tmp flags
-  rm -f /data_persist/ublox.txt /tmp/autostart_stage1_done 2>/dev/null
+  # 2. Restore sm_WCP.conf
+  if [ -f "${SM_WCP_CONF}" ]
+  then
+    if [ -f "${SM_WCP_CONF}.orig" ]
+    then
+      cp -a "${SM_WCP_CONF}.orig" "${SM_WCP_CONF}"
+      rm -f "${SM_WCP_CONF}.orig"
+      echo "Restored ${SM_WCP_CONF} from backup"
+    fi
+    chmod 0644 "${SM_WCP_CONF}"
+  fi
+
+  # 3. Clean up ublox.txt, wcp_force_off and tmp flags
+  rm -f /data_persist/ublox.txt /data_persist/wcp_force_off /tmp/autostart_stage1_done 2>/dev/null
 
   sync
   echo "=== Wireless CarPlay Disable complete ==="
