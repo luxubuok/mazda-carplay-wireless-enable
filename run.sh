@@ -35,6 +35,41 @@ then
   exit 1
 fi
 
+# --- Check Hardware via GPIO: only install on legacy CMU (0/0) ---
+DI_TP1056=/sys/class/gpio/DI_TP1056/value
+DI_TP1029=/sys/class/gpio/DI_TP1029/value
+
+v1=""
+v2=""
+if [ -e "$DI_TP1056" ] && [ -e "$DI_TP1029" ]; then
+  for _ in 0 1 2; do
+    v1=$(cat "$DI_TP1056" 2>/dev/null)
+    v2=$(cat "$DI_TP1029" 2>/dev/null)
+    if { [ "$v1" = "0" ] || [ "$v1" = "1" ]; } && { [ "$v2" = "0" ] || [ "$v2" = "1" ]; }; then
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$v1" = "1" ] || [ "$v2" = "1" ]; then
+    /jci/tools/jci-dialog --info --title="Wireless CarPlay" \
+      --text="Newer CMU hardware with native WCP support detected (GPIO=${v1}/${v2}).\nThis mod is not required.\nPlease remove USB drive." \
+      --no-cancel &
+    sleep 5
+    killall -q jci-dialog
+    exit 0
+  fi
+
+  if [ "$v1" != "0" ] || [ "$v2" != "0" ]; then
+    /jci/tools/jci-dialog --info --title="Wireless CarPlay" \
+      --text="Unable to determine hardware type (GPIO=${v1}/${v2}).\nOperation aborted for safety.\nPlease remove USB drive." \
+      --no-cancel &
+    sleep 5
+    killall -q jci-dialog
+    exit 1
+  fi
+fi
+
 mkdir -p "${MYDIR}/logs"
 
 TARGET_SCRIPT="/jci/scripts/get_board_type.sh"
@@ -112,8 +147,8 @@ if [ "$IS_VIM" -eq 1 ]; then
     exit 1
 elif [ "$IS_AUTOSTART" -eq 1 ]; then
     # autostart calls get_board_type.sh twice during boot:
-    # - Call 1: checks ublox. Return 1 so autostart itself cleans up ublox.txt
-    # - Call 2: starts Service Manager. Delete flag & return 2 to launch sm_WCP.conf
+    # - Call 1 (line 24): checks ublox. Return 1 so autostart itself cleans up ublox.txt
+    # - Call 2 (line 79): starts Service Manager. Delete flag & return 2 to launch sm_WCP.conf
     FLAG="/tmp/autostart_stage1_done"
     if [ ! -f "$FLAG" ]; then
         touch "$FLAG"
